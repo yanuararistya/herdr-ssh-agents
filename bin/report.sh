@@ -76,16 +76,21 @@ for p in procs:
 '
 }
 
-# Which agent is running over there, if any. One pgrep rather than one
-# per name: over a reused connection the round trip is nearly free but
-# each remote process spawn is not, and this runs every cycle for every
-# ssh pane whether or not anything is there.
-remote_agent() { # <host>
+# Every agent running over there, in preference order -- not just the
+# first. A box can run several, and which one *this pane* is showing is
+# not a question the remote process table can answer. It narrows the
+# candidates; the pane picks among them.
+remote_agents() { # <host>
   pattern=$(printf '%s' "$agents" | tr ' ' '|')
   running=$(ssh_probe "$1" "pgrep -lx '$pattern'" 2>/dev/null | awk '{print $2}')
   for a in $agents; do
-    printf '%s\n' "$running" | grep -qx "$a" && { echo "$a"; return; }
+    printf '%s\n' "$running" | grep -qx "$a" && printf '%s ' "$a"
   done
+}
+
+pane_title() { # <pane>
+  "$herdr" pane get "$1" 2>/dev/null |
+    sed -n 's/.*"terminal_title":"\([^"]*\)".*/\1/p' | head -1
 }
 
 screen_of() { # <pane>
@@ -123,8 +128,14 @@ markers_for() { # <agent>
   esac
 }
 
-screen_has_agent() { # <screen-text> <agent>
-  printf '%s' "$1" | grep -qE "$(markers_for "$2")"
+# The pane's title comes from an OSC sequence the agent emits, which
+# rides the pty: it crosses ssh, jump hosts and docker exec alike, and
+# unlike the screen it cannot scroll away or be reflowed. Claude Code
+# sets "✳ Claude Code" there. It is matched with the same vocabulary as
+# the screen, so an agent whose title names it is identified even when
+# its visible text gives nothing away.
+shows_agent() { # <title> <screen-text> <agent>
+  printf '%s\n%s' "$1" "$2" | grep -qE "$(markers_for "$3")"
 }
 
 # Coarse, and deliberately so: the far end's own screen is the only
@@ -209,13 +220,19 @@ while :; do
     f="$run/$(printf '%s' "$pane" | tr ':' '_')"
     host=$(ssh_dest "$pane")
     if [ -z "$host" ]; then retract "$pane"; continue; fi
-    label=$(remote_agent "$host")
-    if [ -z "$label" ]; then retract "$pane"; continue; fi
-    # An agent exists on that box, but this pane may be sitting at a
-    # shell -- someone else's session, or one you exited. Only claim a
-    # pane that is actually showing one.
+    candidates=$(remote_agents "$host")
+    if [ -z "$candidates" ]; then retract "$pane"; continue; fi
+    # An agent exists on that box, but this pane may be at a shell --
+    # someone else's session, or one you exited -- and a box running two
+    # agents cannot say which is here. Whichever candidate the pane is
+    # showing is the answer; none of them means claim nothing.
     screen=$(screen_of "$pane")
-    if ! screen_has_agent "$screen" "$label"; then retract "$pane"; continue; fi
+    title=$(pane_title "$pane")
+    label=""
+    for a in $candidates; do
+      if shows_agent "$title" "$screen" "$a"; then label=$a; break; fi
+    done
+    if [ -z "$label" ]; then retract "$pane"; continue; fi
     [ -f "$f" ] || log "claiming $pane -> $label on $host"
     printf '%s\n' "$label" >"$f"
     claim "$pane" "$label" "$(screen_state "$screen")"

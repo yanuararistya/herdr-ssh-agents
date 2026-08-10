@@ -46,10 +46,18 @@ Every few seconds, for each pane whose foreground job is `ssh`:
 
 1. reads the destination from the pane's own process info — the ssh
    you already ran, no wrapper
-2. asks that host, over a reused connection, whether a known agent is
-   running
-3. reports it, and releases the claim when the agent exits or the pane
+2. asks that host, over a reused connection, which known agents are
+   running there — all of them, since a box may run several
+3. picks whichever of those the pane itself is showing, by its title and
+   its visible text. The remote process table narrows the candidates; it
+   cannot say which session owns one, so the pane decides
+4. reports it, and releases the claim when the agent exits or the pane
    stops being an ssh session
+
+The pane's title is the better half of step 3. It comes from an OSC
+sequence the agent emits, so it rides the pty and crosses ssh, jump
+hosts and `docker exec` alike, and unlike the screen it cannot scroll
+off or be reflowed. Claude Code sets `✳ Claude Code` there.
 
 Destination parsing is the fiddly part and is done properly: a
 `ProxyJump` child shows up in the same job as `ssh -W [host]:22 jump`
