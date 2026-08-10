@@ -79,15 +79,22 @@ disciplines, both fail-closed:
   model — but it cannot pick among several. No unique evidence, no
   claim.
 
-One gap the borrowing cannot cover: an agent whose *idle* screen never
-needed evidence upstream has none to offer here — locally, herdr's
-process anchor makes "known agent, no matched rule" default to idle, so
-codex's only idle rule is "any non-spinner title", and an idle codex
-behind ssh would be invisible. `SUPPLEMENTS` in the reporter carries
-presence-only rules for exactly these named gaps (currently: codex
-idle, its composer arrow and model footer), subject to the same
-fixture and sharing disciplines as every manifest rule. An entry is
-deleted the day the upstream manifest covers its state.
+One gap the borrowing cannot cover, and one honest hack for it: an
+agent whose *idle* screen never needed evidence upstream has none to
+offer here — locally, herdr's process anchor makes "known agent, no
+matched rule" default to idle, so codex's only idle rule is "any
+non-spinner title", and an idle codex behind ssh would either be
+invisible or, worse, flap: appear each turn, vanish at each idle.
+`SUPPLEMENTS` in the reporter carries presence-only rules for these
+named gaps (currently: codex idle, its composer arrow and model
+footer). Call it what it is — hand-rolled vocabulary, the thing this
+rewrite exists to eliminate — kept because every alternative is worse
+for an agent that announces nothing: no hooks to emit from, no title,
+no env herdr can see across ssh. It passes the same fixture and
+sharing disciplines as every manifest rule, it is quarantined in one
+labeled table, and it will rot on the next codex redesign the way
+hand-rolled vocabulary always does. That is the strongest argument in
+this repo for the in-band announcement below.
 
 Destination parsing is the fiddly part and is done properly: a
 `ProxyJump` child shows up in the same job as `ssh -W [host]:22 jump`
