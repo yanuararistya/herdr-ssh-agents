@@ -33,6 +33,7 @@ ROOT = os.environ.get("HERDR_PLUGIN_ROOT")
 HERDR = os.environ.get("HERDR_BIN_PATH", "herdr")
 INTERVAL = float(os.environ.get("SSH_AGENTS_INTERVAL", "5"))
 SOURCE_ID = "ssh-agents"
+PLUGIN_ID = os.environ.get("HERDR_PLUGIN_ID", SOURCE_ID)
 SCREEN_LINES = 40
 
 # Process names to look for on the far end, in preference order. The order
@@ -63,6 +64,20 @@ def herdr_json(*args):
         return json.loads(out) if out.strip() else None
     except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
         return None
+
+
+def still_wanted():
+    """Whether herdr still lists this plugin as installed and enabled.
+
+    None means no answer (server gone, output not JSON) -- absence of
+    evidence, not evidence. The caller keeps running and asks again next
+    cycle; the plugin-root check is the tell that works with no server.
+    """
+    data = herdr_json("plugin", "list", "--json", "--plugin", PLUGIN_ID)
+    plugins = (data or {}).get("result", {}).get("plugins")
+    if plugins is None:
+        return None
+    return any(p.get("plugin_id") == PLUGIN_ID and p.get("enabled") for p in plugins)
 
 
 def pane_ids():
@@ -601,6 +616,23 @@ def retract_all():
         retract(name.replace("_", ":"), forget=False)
 
 
+def teardown_masters():
+    # ControlPersist would reap the ssh masters two minutes after the
+    # last probe anyway; exiting is the one time that lag shows (a mux
+    # process outliving an uninstalled plugin), so close them now.
+    for name in os.listdir(STATE) if os.path.isdir(STATE) else []:
+        if not name.startswith("ssh-"):
+            continue
+        try:
+            subprocess.run(
+                ["ssh", "-o", f"ControlPath={os.path.join(STATE, name)}",
+                 "-O", "exit", name[len("ssh-"):]],
+                capture_output=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+
 # --- main --------------------------------------------------------------------
 
 
@@ -707,6 +739,7 @@ def main():
     # else knows they were ours.
     def bail(signum, frame):
         retract_all()
+        teardown_masters()
         sys.exit(0)
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -714,12 +747,22 @@ def main():
 
     log("watching ssh panes")
     while True:
-        # Uninstalling a plugin removes its files and signals nothing, so a
-        # reporter from a plugin that no longer exists would keep reporting
-        # into herdr forever. Notice, give the claims back, and stop.
-        if not os.path.isfile(os.path.join(ROOT, "herdr-plugin.toml")):
-            log("plugin root is gone; releasing and exiting")
+        # Uninstalling a plugin signals nothing, so a reporter from a
+        # plugin that no longer exists would keep reporting into herdr
+        # forever. Two independent tells, either one final: the managed
+        # checkout is deleted (github installs, and it works with the
+        # server gone), or the registry no longer lists us -- the only
+        # tell for a local-path install, whose files uninstall rightly
+        # leaves alone. Disabled counts as gone too: herdr drops our
+        # claims on disable, and a reporter that kept running would put
+        # them back next cycle. The restart action brings it back.
+        if (
+            not os.path.isfile(os.path.join(ROOT, "herdr-plugin.toml"))
+            or still_wanted() is False
+        ):
+            log("plugin uninstalled or disabled; releasing and exiting")
             retract_all()
+            teardown_masters()
             return
         cycle(manifests, names, dry_run)
         if once:
