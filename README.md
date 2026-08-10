@@ -64,6 +64,10 @@ Environment, read at start:
 - `SSH_AGENTS_INTERVAL` — seconds between sweeps (default `5`)
 - `SSH_AGENTS_NAMES` — process names to look for, in preference order
   (default `claude codex gemini cursor opencode droid amp`)
+- `SSH_AGENTS_MARKERS` — an ERE matched against the pane's visible text
+  to decide it is showing an agent rather than a shell. A pane is claimed
+  only when this matches, so an unrecognised TUI goes unlisted rather
+  than claiming a shell by mistake.
 
 Actions: `ssh-agents.status` shows what it sees and claims,
 `ssh-agents.restart` restarts the reporter.

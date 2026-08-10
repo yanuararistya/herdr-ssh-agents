@@ -95,10 +95,22 @@ screen_of() { # <pane>
 # The box says an agent runs somewhere; the screen says whether it runs
 # HERE. Without this, ssh-ing to a machine where anyone -- another
 # session, another user, a cron job -- happens to be running an agent
-# claims your shell pane for it. The last non-blank line ending in $ or #
-# is a shell waiting for you, which is nobody's agent.
-at_shell_prompt() { # <screen-text>
-  printf '%s' "$1" | grep -v '^[[:space:]]*$' | tail -1 | grep -qE '[$#][[:space:]]*$'
+# claims your shell pane for it.
+#
+# This asks whether the pane is showing an agent, not whether it is
+# showing a shell. The first version asked the opposite, matching a
+# prompt ending in $ or #, and so read every prompt style it did not
+# know about as "must be an agent then" -- a starship prompt ending in
+# ❯ was enough to claim a bare shell. There is no finite list of prompts;
+# there is a finite list of agents.
+#
+# Failing closed is the point: an agent whose TUI is not recognised goes
+# unlisted, which is a missing row rather than a wrong one. A wrong one
+# means something may type into a shell, where a line is executed rather
+# than read. Extend with SSH_AGENTS_MARKERS.
+markers=${SSH_AGENTS_MARKERS:-esc to interrupt|for shortcuts|for agents|Claude Code|OpenAI Codex|⏎ send}
+screen_has_agent() { # <screen-text>
+  printf '%s' "$1" | grep -qE "$markers"
 }
 
 # Coarse, and deliberately so: the far end's own screen is the only
@@ -189,7 +201,7 @@ while :; do
     # shell -- someone else's session, or one you exited. Only claim a
     # pane that is actually showing one.
     screen=$(screen_of "$pane")
-    if at_shell_prompt "$screen"; then retract "$pane"; continue; fi
+    if ! screen_has_agent "$screen"; then retract "$pane"; continue; fi
     [ -f "$f" ] || log "claiming $pane -> $label on $host"
     printf '%s\n' "$label" >"$f"
     claim "$pane" "$label" "$(screen_state "$screen")"
