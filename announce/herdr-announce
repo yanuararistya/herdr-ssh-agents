@@ -21,4 +21,24 @@ case $seq in
 *N* | '') seq=$(date +%s)000000000 ;;
 esac
 
-printf '\033]21337;agent=%s;state=%s;seq=%s\007' "$agent" "$state" "$seq" >/dev/tty 2>/dev/null || :
+emit() { printf '\033]21337;agent=%s;state=%s;seq=%s\007' "$agent" "$state" "$seq" >"$1" 2>/dev/null; }
+
+# /dev/tty is the controlling terminal, and agent harnesses run their
+# hooks without one (Claude Code does). The terminal is still there --
+# it is the agent's own stdout -- so walk up the process tree to the
+# nearest ancestor that has a tty and write to that device. Same user,
+# same session, just not inherited as controlling.
+emit /dev/tty && exit 0
+pid=$$
+i=0
+while [ "$i" -lt 10 ]; do
+  pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null || break
+  tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+  case $tty in
+  '' | '?' | '??') ;;
+  *) emit "/dev/$tty" && exit 0 ;;
+  esac
+  i=$((i + 1))
+done
+exit 0
