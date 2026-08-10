@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "herdr-announce claude idle" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "herdr-announce claude working" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "herdr-announce claude blocked" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "herdr-announce claude idle" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "herdr-announce claude exited" }] }
+    ]
+  }
+}

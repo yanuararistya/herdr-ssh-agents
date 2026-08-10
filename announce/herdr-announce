@@ -1,0 +1,24 @@
+#!/bin/sh
+# Announce an agent's identity and state on the controlling terminal, as
+# OSC 21337. The sequence rides the pty, so it arrives wherever the pane's
+# bytes arrive: through ssh, jump hosts, `docker exec`, anything. A herdr
+# that understands the announcement needs no process table, no polling and
+# no screen heuristics to know what this pane is running.
+#
+# Usage: herdr-announce <agent> <idle|working|blocked|exited>
+#
+# Designed to be called from agent hooks (Claude Code hooks, codex notify,
+# or any harness that can run a shell command on lifecycle transitions).
+# No controlling tty means no announcement: fail closed, exit 0.
+agent=${1:?usage: herdr-announce <agent> <state>}
+state=${2:?usage: herdr-announce <agent> <state>}
+
+# Monotonic sequence: nanoseconds since epoch where date(1) supports %N
+# (GNU), whole seconds padded to the same magnitude where it does not
+# (BSD/macOS prints the literal %N). Readers only compare; gaps are fine.
+seq=$(date +%s%N 2>/dev/null)
+case $seq in
+*N* | '') seq=$(date +%s)000000000 ;;
+esac
+
+printf '\033]21337;agent=%s;state=%s;seq=%s\007' "$agent" "$state" "$seq" >/dev/tty 2>/dev/null || :
