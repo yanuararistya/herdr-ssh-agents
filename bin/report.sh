@@ -12,7 +12,7 @@
 # using the same shipped contract the local hooks use. No patched herdr,
 # nothing installed on the remote host.
 set -u
-: "${HERDR_PLUGIN_STATE_DIR:?}"
+: "${HERDR_PLUGIN_STATE_DIR:?}" "${HERDR_PLUGIN_ROOT:?}"
 
 herdr=${HERDR_BIN_PATH:-herdr}
 state="$HERDR_PLUGIN_STATE_DIR"
@@ -105,6 +105,25 @@ claim() { # <pane> <label> <state>
     --state "$3" --seq "$(now_ns)" >/dev/null 2>&1
 }
 
+# Releasing withdraws our claim, which is not the same as retiring the
+# row: herdr keeps the pane's agent authority, and a nameless entry
+# survives the release. Only the socket API clears that -- there is no
+# CLI verb for it.
+clear_authority() { # <pane>
+  [ -n "${HERDR_SOCKET_PATH:-}" ] || return 0
+  SA_PANE="$1" python3 -c '
+import json, os, socket
+try:
+    s = socket.socket(socket.AF_UNIX); s.settimeout(5)
+    s.connect(os.environ["HERDR_SOCKET_PATH"])
+    s.sendall((json.dumps({"id": "sa-clear", "method": "pane.clear_agent_authority",
+                           "params": {"pane_id": os.environ["SA_PANE"]}}) + "\n").encode())
+    s.recv(4096)
+except Exception:
+    pass
+' 2>/dev/null || true
+}
+
 # A claim outlives nothing: a pane that stopped being an ssh session, or
 # whose agent exited, must not keep an entry in the sidebar that nothing
 # is behind.
@@ -113,12 +132,36 @@ retract() { # <pane>
   [ -f "$f" ] || return 0
   "$herdr" pane release-agent "$1" --source "$source_id" \
     --agent "$(cat "$f")" --seq "$(now_ns)" >/dev/null 2>&1
+  clear_authority "$1"
   rm -f "$f"
   log "released $1"
 }
 
+# Everything we claimed, given up at once. Called on the way out, so a
+# stop leaves no row behind that nothing is behind.
+retract_all() {
+  for f in "$run"/*; do
+    [ -f "$f" ] || continue
+    retract "$(basename "$f" | tr '_' ':')"
+  done
+}
+
+# A reporter that is killed, disabled or uninstalled would otherwise
+# leave its claims standing forever -- herdr persists them, and nothing
+# else knows they were ours. pkill sends TERM, so this covers the way
+# people actually stop it.
+trap 'retract_all; exit 0' TERM INT HUP
+
 log "watching ssh panes"
 while :; do
+  # Uninstalling a plugin removes its files and signals nothing, so a
+  # reporter from a plugin that no longer exists would keep reporting
+  # into herdr forever. Notice, give the claims back, and stop.
+  if [ ! -f "$HERDR_PLUGIN_ROOT/herdr-plugin.toml" ]; then
+    log "plugin root is gone; releasing and exiting"
+    retract_all
+    exit 0
+  fi
   seen=""
   for pane in $(panes); do
     seen="$seen $pane"
