@@ -1,0 +1,19 @@
+id = "ssh-agents"
+name = "ssh-agents"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Agents running behind ssh show up in the agents sidebar."
+platforms = ["linux", "macos"]
+
+[[startup]]
+command = ["sh", "bin/startup.sh"]
+
+[[actions]]
+id = "status"
+title = "ssh-agents: what it sees"
+command = ["sh", "bin/status.sh"]
+
+[[actions]]
+id = "restart"
+title = "ssh-agents: restart"
+command = ["sh", "bin/startup.sh"]
