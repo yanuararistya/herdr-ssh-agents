@@ -97,20 +97,34 @@ screen_of() { # <pane>
 # session, another user, a cron job -- happens to be running an agent
 # claims your shell pane for it.
 #
-# This asks whether the pane is showing an agent, not whether it is
-# showing a shell. The first version asked the opposite, matching a
-# prompt ending in $ or #, and so read every prompt style it did not
-# know about as "must be an agent then" -- a starship prompt ending in
-# ❯ was enough to claim a bare shell. There is no finite list of prompts;
-# there is a finite list of agents.
+# This asks whether the pane shows *the agent the box is running*, keyed
+# per agent, because pgrep already told us which one that is. A narrower
+# test than one global list: codex markers are never applied to a box
+# running claude, so they cannot false-positive there.
 #
-# Failing closed is the point: an agent whose TUI is not recognised goes
-# unlisted, which is a missing row rather than a wrong one. A wrong one
-# means something may type into a shell, where a line is executed rather
-# than read. Extend with SSH_AGENTS_MARKERS.
-markers=${SSH_AGENTS_MARKERS:-esc to interrupt|for shortcuts|for agents|Claude Code|OpenAI Codex|⏎ send}
-screen_has_agent() { # <screen-text>
-  printf '%s' "$1" | grep -qE "$markers"
+# Read this for what it is: a heuristic over someone else's rendering.
+# It breaks on redesigns -- codex's newer TUI dropped every marker the
+# first version had -- and there is no list of prompts that stays right,
+# which is why the test is positive rather than negative. It fails
+# closed: an unrecognised TUI goes unlisted, a missing row rather than a
+# claim on a live shell where an injected line would be executed.
+# The reliable answer needs the far end to announce itself; see the
+# README.
+markers_for() { # <agent>
+  case $1 in
+  claude) printf '%s' "${SSH_AGENTS_MARKERS_CLAUDE:-esc to interrupt|for shortcuts|for agents|Claude Code}" ;;
+  # Primary is the persistent footer, "<model> <effort> <speed> · <cwd>".
+  # The model carries a hyphen (gpt-5.6-sol), so the character after the
+  # family cannot be assumed to be a digit. The composer arrow is the
+  # fallback: U+203A, which is not the U+276F that starship prompts use,
+  # so it does not collide with a shell.
+  codex) printf '%s' "${SSH_AGENTS_MARKERS_CODEX:-(gpt|o)[-0-9][^ ]* (low|medium|high) |OpenAI Codex|^›}" ;;
+  *) printf '%s' "${SSH_AGENTS_MARKERS:-esc to interrupt|for shortcuts|for agents|⏎ send}" ;;
+  esac
+}
+
+screen_has_agent() { # <screen-text> <agent>
+  printf '%s' "$1" | grep -qE "$(markers_for "$2")"
 }
 
 # Coarse, and deliberately so: the far end's own screen is the only
@@ -201,7 +215,7 @@ while :; do
     # shell -- someone else's session, or one you exited. Only claim a
     # pane that is actually showing one.
     screen=$(screen_of "$pane")
-    if ! screen_has_agent "$screen"; then retract "$pane"; continue; fi
+    if ! screen_has_agent "$screen" "$label"; then retract "$pane"; continue; fi
     [ -f "$f" ] || log "claiming $pane -> $label on $host"
     printf '%s\n' "$label" >"$f"
     claim "$pane" "$label" "$(screen_state "$screen")"

@@ -64,9 +64,11 @@ Environment, read at start:
 - `SSH_AGENTS_INTERVAL` — seconds between sweeps (default `5`)
 - `SSH_AGENTS_NAMES` — process names to look for, in preference order
   (default `claude codex gemini cursor opencode droid amp`)
-- `SSH_AGENTS_MARKERS` — an ERE matched against the pane's visible text
-  to decide it is showing an agent rather than a shell. A pane is claimed
-  only when this matches, so an unrecognised TUI goes unlisted rather
+- `SSH_AGENTS_MARKERS_CLAUDE`, `SSH_AGENTS_MARKERS_CODEX`,
+  `SSH_AGENTS_MARKERS` — EREs matched against the pane's visible text to
+  decide it is showing an agent rather than a shell. Keyed per agent,
+  since the remote process table already says which one is there. A pane
+  is claimed only on a match, so an unrecognised TUI goes unlisted rather
   than claiming a shell by mistake.
 
 Actions: `ssh-agents.status` shows what it sees and claims,
@@ -83,6 +85,25 @@ Actions: `ssh-agents.status` shows what it sees and claims,
 - **Status is coarse.** working while the far end's screen shows a turn
   in flight, idle otherwise. A real hook on the remote would be better,
   but the point of this is to need nothing there.
+- **Deciding the agent is in *this* pane is a heuristic**, and the
+  weakest part. The remote process table proves an agent exists on that
+  box; it cannot say which session it belongs to. So the pane's own
+  screen is read for the agent's interface, which breaks on redesigns —
+  a newer codex dropped every marker an earlier version had — and needs
+  a new pattern each time.
+
+  Matching on the connection instead would be a fact rather than a
+  guess: the pane's ssh has a source port, and the far end can map that
+  to the sshd session an agent hangs off. It does not survive
+  `ProxyJump`, where the pane's ssh holds no socket at all and the only
+  connection points at the jump host, so it would answer for direct
+  sessions and nothing else.
+
+  The version that works everywhere needs the far end to announce
+  itself. An OSC sequence from the agent's own hook rides the pty, so it
+  crosses ssh, jump hosts, `docker exec` and anything else carrying a
+  terminal — but it needs the agent to cooperate, which a plugin on this
+  side cannot arrange.
 - **It polls.** A plugin cannot hook herdr's detection loop. The
   in-tree version of this would not need to.
 
