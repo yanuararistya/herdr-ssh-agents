@@ -9,7 +9,7 @@ This plugin fixes that on stock herdr. No patched build, and nothing
 installed on the remote host.
 
 ```sh
-herdr plugin install getbeb/herdr-ssh-agents
+herdr plugin install yanuararistya/herdr-ssh-agents
 herdr plugin action invoke ssh-agents.restart   # start it this once
 ```
 
