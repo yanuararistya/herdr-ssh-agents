@@ -122,23 +122,49 @@ def ssh_dest(pane):
 # --- remote probe ------------------------------------------------------------
 #
 # One ssh handshake per host, reused via ControlMaster. The master is ours
-# and short-lived, so it cannot outlive the reporter by much. The probe
-# returns candidates only; which one THIS pane is showing is not a question
-# the remote process table can answer.
+# and short-lived, so it cannot outlive the reporter by much.
+#
+# The probe answers two questions. The strong one: which agent process
+# serves WHICH PANE. herdr exports the pane's identity as LC_HERDR_PANE,
+# ssh forwards LC_* by platform default -- end to end, through jump
+# hosts, since it is session protocol rather than a TCP fact -- and
+# every process of that remote session inherits it. A candidate whose
+# environment names the pane and whose process group is its terminal's
+# foreground group (pgrp == tpgid, the literal local rule evaluated
+# remotely) IS that pane's agent, the way a local foreground process
+# is: identity by process table, not by inference, for agents that
+# announce nothing. Nothing is configured anywhere for this; a hardened
+# sshd that strips env simply leaves the weak answer.
+#
+# The weak one, for sessions without the env: which agents exist on the
+# box at all -- candidates for the evidence machinery below.
 #
 # HERDR_AGENT in a candidate's environment is herdr's own opt-in identity
-# marker (its local detection reads it from foreground processes). The far
-# end's /proc lets us honor it remotely: a candidate that declares a label
-# is believed over its process name, which covers agents launched through
-# wrappers pgrep cannot see through.
+# marker; a candidate that declares a label is believed over its process
+# name, which covers agents launched through wrappers pgrep cannot see
+# through.
 
 
 def probe(host, names):
+    """Returns (anchored, candidates).
+
+    anchored: pane_id -> agent label, for remote foreground processes
+    that inherited this herdr's pane identity. Ambiguity (two labels
+    claiming one pane) discards the anchor for that pane: fail closed,
+    the evidence machinery still runs.
+    candidates: agent labels present on the box, in preference order,
+    for panes the anchor cannot answer.
+    """
     pattern = "|".join(names)
     cmd = (
-        f"pgrep -lx '{pattern}' 2>/dev/null; "
         f"for p in $(pgrep -x '{pattern}' 2>/dev/null); do "
-        f"tr '\\0' '\\n' </proc/$p/environ 2>/dev/null | grep '^HERDR_AGENT='; "
+        f'set -- $(cut -d")" -f2- /proc/$p/stat 2>/dev/null); '
+        f'[ -n "${{6:-}}" ] || continue; '
+        f'fg=0; [ "$3" = "$6" ] && fg=1; '
+        f"pane=$(tr '\\0' '\\n' </proc/$p/environ 2>/dev/null | sed -n 's/^LC_HERDR_PANE=//p' | head -1); "
+        f"agent=$(tr '\\0' '\\n' </proc/$p/environ 2>/dev/null | sed -n 's/^HERDR_AGENT=//p' | head -1); "
+        f"name=$(cat /proc/$p/comm 2>/dev/null); "
+        f'printf "P|%s|%s|%s|%s\\n" "$name" "$fg" "$pane" "$agent"; '
         f"done"
     )
     try:
@@ -158,18 +184,31 @@ def probe(host, names):
             timeout=20,
         ).stdout
     except (subprocess.TimeoutExpired, OSError):
-        return []
+        return {}, []
     found = set()
+    pane_labels = {}
     for line in out.splitlines():
-        if line.startswith("HERDR_AGENT="):
-            found.add(line.split("=", 1)[1].strip().lower())
-        else:
-            parts = line.split(None, 1)
-            if len(parts) == 2:
-                found.add(parts[1].strip())
-    return [name for name in names if name in found] + sorted(
+        if not line.startswith("P|"):
+            continue
+        parts = line.split("|")
+        if len(parts) != 5:
+            continue
+        _, name, fg, pane, declared = parts
+        label = (declared or name).strip().lower()
+        if not label:
+            continue
+        found.add(label)
+        if pane and fg == "1":
+            pane_labels.setdefault(pane, set()).add(label)
+    anchored = {
+        pane: labels.pop()
+        for pane, labels in pane_labels.items()
+        if len(labels) == 1
+    }
+    candidates = [name for name in names if name in found] + sorted(
         name for name in found if name not in names
     )
+    return anchored, candidates
 
 
 # --- manifests ---------------------------------------------------------------
@@ -574,7 +613,7 @@ def cycle(manifests, names, dry_run=False):
         if not host:
             dry_run or retract(pane)
             continue
-        candidates = probe(host, names)
+        anchored, candidates = probe(host, names)
         if not candidates:
             dry_run or retract(pane)
             continue
@@ -599,8 +638,20 @@ def cycle(manifests, names, dry_run=False):
         if held_host != host:
             held = None
         chosen = None
+        # The strong answer first: a remote foreground process that
+        # inherited this pane's identity IS this pane's agent -- the
+        # process table says so, the way it says so locally, and the
+        # agent said nothing. Identity by observation; the manifests do
+        # their upstream job of classifying state, with herdr's own
+        # idle fallback when a quiet screen matches nothing.
+        anchor = anchored.get(pane)
+        if anchor:
+            entry = manifests.for_label(anchor)
+            if entry is not None:
+                _, _, state = evaluate(entry, screen, title, manifests.shared_atoms)
+                chosen = (entry["id"], state if state != "unknown" else "idle")
         sole = len(candidates) == 1
-        for label in candidates:
+        for label in [] if chosen else candidates:
             entry = manifests.for_label(label)
             if entry is None:
                 continue
