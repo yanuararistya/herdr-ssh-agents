@@ -79,22 +79,24 @@ disciplines, both fail-closed:
   model — but it cannot pick among several. No unique evidence, no
   claim.
 
-One gap the borrowing cannot cover, and one honest hack for it: an
-agent whose *idle* screen never needed evidence upstream has none to
-offer here — locally, herdr's process anchor makes "known agent, no
-matched rule" default to idle, so codex's only idle rule is "any
-non-spinner title", and an idle codex behind ssh would either be
-invisible or, worse, flap: appear each turn, vanish at each idle.
-`SUPPLEMENTS` in the reporter carries presence-only rules for these
-named gaps (currently: codex idle, its composer arrow and model
-footer). Call it what it is — hand-rolled vocabulary, the thing this
-rewrite exists to eliminate — kept because every alternative is worse
-for an agent that announces nothing: no hooks to emit from, no title,
-no env herdr can see across ssh. It passes the same fixture and
-sharing disciplines as every manifest rule, it is quarantined in one
-labeled table, and it will rot on the next codex redesign the way
-hand-rolled vocabulary always does. That is the strongest argument in
-this repo for the in-band announcement below.
+Acquisition and retention are deliberately different tests, which is
+herdr's own model: locally it acquires identity from an anchor (the
+process table) and then keeps it for the process's lifetime, with
+unmatched state defaulting to idle. Here the anchor is the pane's own
+evidence, and retention is the remote process still existing: once a
+pane has proven its agent, the claim holds while pgrep still finds that
+agent on the box and the pane still points at that host — no screen
+evidence needed. This covers the state manifests are structurally
+silent about: an agent's *idle* screen never needed evidence upstream,
+so codex's only idle rule is "any non-spinner title" and an idle codex
+would otherwise flap out of the sidebar between turns.
+
+Two honest edges of that model: an agent that has never shown
+distinctive evidence — launched and left idle, never once prompted —
+stays unlisted until its first turn; and a pane where you exited the
+agent to a shell keeps its row while the same agent still runs
+elsewhere on that box (it clears when the process exits, and delivery
+tools have their own final shell guard, so the stale row is cosmetic).
 
 Destination parsing is the fiddly part and is done properly: a
 `ProxyJump` child shows up in the same job as `ssh -W [host]:22 jump`

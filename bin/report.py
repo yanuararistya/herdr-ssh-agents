@@ -223,33 +223,6 @@ def fetch_manifests():
         return None
 
 
-# Presence supplements, for the one gap borrowing cannot cover: herdr's
-# manifests classify state after process-anchored identity, so an agent
-# whose IDLE screen never needed evidence upstream has none to offer us
-# -- codex's only idle rule is "any non-spinner title", and an idle
-# codex behind ssh is therefore invisible (working and blocked have
-# distinctive rules and appear at once). Each supplement is subject to
-# the same disciplines as manifest rules -- null-fixture
-# distinctiveness, corpus-wide atom sharing -- so this is a bounded
-# patch over a named upstream gap, not the return of a marker file.
-# Remove an entry the day the upstream manifest covers its state.
-SUPPLEMENTS = {
-    "codex": [
-        {
-            "id": "ssh-agents:codex_idle_screen",
-            "state": "idle",
-            "region": "bottom_non_empty_lines(3)",
-            "visible_idle": True,
-            # The persistent footer, "<model> <effort> · <cwd>". The model
-            # carries a hyphen (gpt-5.6-sol): the character after the
-            # family is not a digit. The composer arrow is U+203A, which
-            # is not the U+276F starship prompts use.
-            "line_regex": ["^\\s*(gpt|o)[-0-9]\\S* \\S+ · ", "^\\s*›"],
-        },
-    ],
-}
-
-
 class Manifests:
     def __init__(self):
         self.dir = None
@@ -286,10 +259,6 @@ class Manifests:
                 log("skipping manifest", name, "--", err)
                 continue
             rules = [r for r in manifest.get("rules", []) if compile_rule(r)]
-            for supplement in SUPPLEMENTS.get(manifest.get("id", ""), []):
-                rule = dict(supplement)
-                if compile_rule(rule):
-                    rules.append(rule)
             if not rules:
                 continue
             entry = {"id": manifest.get("id", ""), "rules": rules}
@@ -554,26 +523,43 @@ def clear_authority(pane):
         pass
 
 
-def retract(pane):
-    path = claim_path(pane)
-    if not os.path.isfile(path):
+def read_claim(pane):
+    """Returns (label, host) recorded for the pane, or (None, None)."""
+    try:
+        with open(claim_path(pane)) as f:
+            parts = f.read().split()
+    except OSError:
+        return None, None
+    if not parts:
+        return None, None
+    return parts[0], parts[1] if len(parts) > 1 else None
+
+
+# forget=False is the shutdown path: the rows are released so a stopped
+# reporter leaves nothing standing in herdr, but the memory of what was
+# proven stays on disk. Retention is anchored to the REMOTE process, and
+# that process did not restart just because the reporter did -- without
+# the memory, every restart would drop each idle agent until its next
+# turn produced fresh evidence. A real departure forgets.
+def retract(pane, forget=True):
+    label, _ = read_claim(pane)
+    if label is None:
         return
-    with open(path) as f:
-        label = f.read().strip()
     subprocess.run(
         [HERDR, "pane", "release-agent", pane, "--source", SOURCE_ID,
          "--agent", label, "--seq", str(now_ns())],
         capture_output=True, timeout=15,
     )
     clear_authority(pane)
-    os.unlink(path)
+    if forget:
+        os.unlink(claim_path(pane))
     log("released", pane)
 
 
 def retract_all():
     claimed = os.path.join(STATE, "claimed")
     for name in os.listdir(claimed) if os.path.isdir(claimed) else []:
-        retract(name.replace("_", ":"))
+        retract(name.replace("_", ":"), forget=False)
 
 
 # --- main --------------------------------------------------------------------
@@ -596,17 +582,22 @@ def cycle(manifests, names, dry_run=False):
         # someone else's session, or one you exited -- and a box running
         # two agents cannot say which is here. Acquiring a claim takes
         # evidence that names one candidate alone (or any distinctive
-        # evidence, when the process table left a single candidate);
-        # holding a claim already made takes only distinctive evidence,
-        # because identity was settled when the claim was acquired --
-        # which is herdr's own model, where manifests classify state after
-        # identity is known. None of that means claim nothing.
+        # evidence, when the process table left a single candidate).
+        #
+        # Holding a claim already made takes no screen evidence at all,
+        # only the process still existing -- which is herdr's own model,
+        # acquisition by anchor and retention by process lifetime, and it
+        # covers the state manifests are silent about: an agent's idle
+        # screen never needed evidence upstream (the process anchor
+        # answers there), so idle codex matches nothing and must not
+        # flap out of the sidebar between turns. A retained claim whose
+        # screen matches no rule is idle for the same reason herdr's
+        # fallback is: known agent, nothing to report.
         screen = pane_screen(pane)
         title = pane_title(pane)
-        held = None
-        if os.path.isfile(claim_path(pane)):
-            with open(claim_path(pane)) as f:
-                held = f.read().strip()
+        held, held_host = read_claim(pane)
+        if held_host != host:
+            held = None
         chosen = None
         sole = len(candidates) == 1
         for label in candidates:
@@ -616,10 +607,16 @@ def cycle(manifests, names, dry_run=False):
             unique_present, present, state = evaluate(
                 entry, screen, title, manifests.shared_atoms
             )
-            acquire = unique_present or (sole and present)
-            retain = present and held == entry["id"]
-            if acquire or retain:
+            if unique_present or (sole and present):
                 chosen = (entry["id"], state)
+                break
+        if chosen is None and held is not None:
+            for label in candidates:
+                entry = manifests.for_label(label)
+                if entry is None or entry["id"] != held:
+                    continue
+                _, _, state = evaluate(entry, screen, title, manifests.shared_atoms)
+                chosen = (held, state if state != "unknown" else "idle")
                 break
         if dry_run:
             log(f"dry-run: {pane} host={host} candidates={candidates} -> {chosen}")
@@ -629,11 +626,11 @@ def cycle(manifests, names, dry_run=False):
             continue
         label, state = chosen
         path = claim_path(pane)
-        if not os.path.isfile(path):
+        if read_claim(pane) != (label, host):
             log(f"claiming {pane} -> {label} on {host}")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            f.write(label + "\n")
+            f.write(f"{label} {host}\n")
         claim(pane, label, state)
     if dry_run:
         return
