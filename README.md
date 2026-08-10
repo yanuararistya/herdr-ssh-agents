@@ -79,6 +79,16 @@ disciplines, both fail-closed:
   model — but it cannot pick among several. No unique evidence, no
   claim.
 
+One gap the borrowing cannot cover: an agent whose *idle* screen never
+needed evidence upstream has none to offer here — locally, herdr's
+process anchor makes "known agent, no matched rule" default to idle, so
+codex's only idle rule is "any non-spinner title", and an idle codex
+behind ssh would be invisible. `SUPPLEMENTS` in the reporter carries
+presence-only rules for exactly these named gaps (currently: codex
+idle, its composer arrow and model footer), subject to the same
+fixture and sharing disciplines as every manifest rule. An entry is
+deleted the day the upstream manifest covers its state.
+
 Destination parsing is the fiddly part and is done properly: a
 `ProxyJump` child shows up in the same job as `ssh -W [host]:22 jump`
 and names the jump host rather than where you are, so it is skipped, and

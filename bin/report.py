@@ -223,6 +223,33 @@ def fetch_manifests():
         return None
 
 
+# Presence supplements, for the one gap borrowing cannot cover: herdr's
+# manifests classify state after process-anchored identity, so an agent
+# whose IDLE screen never needed evidence upstream has none to offer us
+# -- codex's only idle rule is "any non-spinner title", and an idle
+# codex behind ssh is therefore invisible (working and blocked have
+# distinctive rules and appear at once). Each supplement is subject to
+# the same disciplines as manifest rules -- null-fixture
+# distinctiveness, corpus-wide atom sharing -- so this is a bounded
+# patch over a named upstream gap, not the return of a marker file.
+# Remove an entry the day the upstream manifest covers its state.
+SUPPLEMENTS = {
+    "codex": [
+        {
+            "id": "ssh-agents:codex_idle_screen",
+            "state": "idle",
+            "region": "bottom_non_empty_lines(3)",
+            "visible_idle": True,
+            # The persistent footer, "<model> <effort> · <cwd>". The model
+            # carries a hyphen (gpt-5.6-sol): the character after the
+            # family is not a digit. The composer arrow is U+203A, which
+            # is not the U+276F starship prompts use.
+            "line_regex": ["^\\s*(gpt|o)[-0-9]\\S* \\S+ · ", "^\\s*›"],
+        },
+    ],
+}
+
+
 class Manifests:
     def __init__(self):
         self.dir = None
@@ -259,6 +286,10 @@ class Manifests:
                 log("skipping manifest", name, "--", err)
                 continue
             rules = [r for r in manifest.get("rules", []) if compile_rule(r)]
+            for supplement in SUPPLEMENTS.get(manifest.get("id", ""), []):
+                rule = dict(supplement)
+                if compile_rule(rule):
+                    rules.append(rule)
             if not rules:
                 continue
             entry = {"id": manifest.get("id", ""), "rules": rules}
