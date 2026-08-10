@@ -88,12 +88,27 @@ remote_agent() { # <host>
   done
 }
 
+screen_of() { # <pane>
+  "$herdr" pane read "$1" --source visible --lines 12 2>/dev/null
+}
+
+# The box says an agent runs somewhere; the screen says whether it runs
+# HERE. Without this, ssh-ing to a machine where anyone -- another
+# session, another user, a cron job -- happens to be running an agent
+# claims your shell pane for it. The last non-blank line ending in $ or #
+# is a shell waiting for you, which is nobody's agent.
+at_shell_prompt() { # <screen-text>
+  printf '%s' "$1" | grep -v '^[[:space:]]*$' | tail -1 | grep -qE '[$#][[:space:]]*$'
+}
+
 # Coarse, and deliberately so: the far end's own screen is the only
 # liveness signal that crosses without installing something there. herdr
 # refines it from the same content once the agent is identified.
-screen_state() { # <pane>
-  if "$herdr" pane read "$1" --source visible --lines 6 2>/dev/null |
-    grep -q 'esc to interrupt'; then echo working; else echo idle; fi
+screen_state() { # <screen-text>
+  case $1 in
+  *'esc to interrupt'*) echo working ;;
+  *) echo idle ;;
+  esac
 }
 
 now_ns() { python3 -c 'import time; print(time.time_ns())'; }
@@ -170,9 +185,14 @@ while :; do
     if [ -z "$host" ]; then retract "$pane"; continue; fi
     label=$(remote_agent "$host")
     if [ -z "$label" ]; then retract "$pane"; continue; fi
+    # An agent exists on that box, but this pane may be sitting at a
+    # shell -- someone else's session, or one you exited. Only claim a
+    # pane that is actually showing one.
+    screen=$(screen_of "$pane")
+    if at_shell_prompt "$screen"; then retract "$pane"; continue; fi
     [ -f "$f" ] || log "claiming $pane -> $label on $host"
     printf '%s\n' "$label" >"$f"
-    claim "$pane" "$label" "$(screen_state "$pane")"
+    claim "$pane" "$label" "$(screen_state "$screen")"
   done
   # Panes herdr no longer has at all.
   for f in "$run"/*; do
